@@ -65,6 +65,7 @@ jobs:
           echo "BUILD_JOB_ID=$GITHUB_RUN_NUMBER" >> $GITHUB_OUTPUT
 
       - name: Create Release
+        shell: bash
         env:
           SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
