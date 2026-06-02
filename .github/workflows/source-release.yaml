@@ -5,12 +5,12 @@ on:
 
 jobs:
   build-source:
-    runs-on: epsilon
+    runs-on: ubuntu-latest
     container:
       image: codeberg.org/librewolf/bsys6:dind
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
         with:
           submodules: recursive
 
@@ -21,7 +21,7 @@ jobs:
 
       - name: Make LibreWolf source archive
         env:
-            SIGNING_KEY: ${{secrets.SIGNING_KEY}}
+          SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
         run: |
           make all
 
@@ -30,7 +30,7 @@ jobs:
           make check-fuzz
 
       - name: Upload artifacts
-        uses: checkout/upload-artifacts@v4
+        uses: actions/upload-artifact@v4
         with:
           name: librewolf-source
           path: |
@@ -42,70 +42,35 @@ jobs:
           retention-days: 7
 
   publish-release:
-    runs-on: epsilon
+    runs-on: ubuntu-latest
     container:
       image: codeberg.org/librewolf/bsys6:dind
     needs: [build-source]
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
         with:
           submodules: recursive
 
       - name: Download artifacts
-        uses: checkout/download-artifact@v4
+        uses: actions/download-artifact@v4
         with:
           merge-multiple: true
 
       - name: Set variables
         id: version
         run: |
-          echo "VERSION=$(cat version)" >> $FORGEJO_OUTPUT
-          echo "RELEASE=$(cat release)" >> $FORGEJO_OUTPUT
-          echo "BUILD_JOB_ID=$FORGEJO_RUN_NUMBER" >> $FORGEJO_OUTPUT
-
-      - name: Upload to Package Registry
-        env:
-          SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
-        run: |
-          FILES=(
-            "librewolf-${{ steps.version.outputs.VERSION }}-${{ steps.version.outputs.RELEASE }}.source.tar.gz"
-            "librewolf-${{ steps.version.outputs.VERSION }}-${{ steps.version.outputs.RELEASE }}.source.tar.gz.sha256sum"
-            "librewolf-${{ steps.version.outputs.VERSION }}-${{ steps.version.outputs.RELEASE }}.source.tar.gz.sha512sum"
-          )
-
-          if [[ -n "$SIGNING_KEY" ]]; then
-            FILES+=("librewolf-${{ steps.version.outputs.VERSION }}-${{ steps.version.outputs.RELEASE }}.source.tar.gz.sig")
-          fi
-
-          for FILE in "${FILES[@]}"; do
-            curl --http1.1 --user "${{ vars.FORGE_USER }}:${{ secrets.FORGE_TOKEN }}" --upload-file "${FILE}" "${{ forgejo.server_url }}/api/packages/${{ forgejo.repository_owner }}/generic/librewolf-source/${{ steps.version.outputs.VERSION }}-${{ steps.version.outputs.RELEASE }}/${FILE}" >&2
-          done
+          echo "VERSION=$(cat version)" >> $GITHUB_OUTPUT
+          echo "RELEASE=$(cat release)" >> $GITHUB_OUTPUT
+          echo "BUILD_JOB_ID=$GITHUB_RUN_NUMBER" >> $GITHUB_OUTPUT
 
       - name: Create Release
         env:
           SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="${{ steps.version.outputs.VERSION }}-${{ steps.version.outputs.RELEASE }}"
-          PACKAGE_BASE="${{ forgejo.server_url }}/api/packages/${{ forgejo.repository_owner }}/generic/librewolf-source/${TAG}"
 
-          # Create release
-          body=$(jq -n \
-            --arg tag "$TAG" \
-            --arg name "LibreWolf Source v${TAG}" \
-            --arg body $'## LibreWolf Source Release v'"${TAG}"$'\n\nBuilt on Codeberg by workflow [#${{ forgejo.run_number }}](${{ forgejo.server_url }}/${{ forgejo.repository }}/actions/runs/${{ forgejo.run_number }})' \
-            '{tag_name: $tag, name: $name, body: $body, draft: false, prerelease: false}')
-
-          release_id=$(curl --fail-with-body --header 'Content-Type: application/json' \
-            --header 'accept: application/json' \
-            --header "Authorization: token ${{ secrets.FORGE_TOKEN }}" \
-            --data "$body" \
-            --request POST \
-            "${{ forgejo.server_url }}/api/v1/repos/${{ forgejo.repository }}/releases" | jq -r '.id')
-
-          echo "Release created with ID: $release_id"
-
-          # Add external URL assets
           FILES=(
             "librewolf-${TAG}.source.tar.gz"
             "librewolf-${TAG}.source.tar.gz.sha256sum"
@@ -116,11 +81,7 @@ jobs:
             FILES+=("librewolf-${TAG}.source.tar.gz.sig")
           fi
 
-          for FILE in "${FILES[@]}"; do
-            echo "Adding external asset: $FILE"
-            curl --fail-with-body --header 'accept: application/json' \
-              --header "Authorization: token ${{ secrets.FORGE_TOKEN }}" \
-              -F "external_url=${PACKAGE_BASE}/${FILE}" \
-              --request POST \
-              "${{ forgejo.server_url }}/api/v1/repos/${{ forgejo.repository }}/releases/${release_id}/assets?name=$(printf '%s' "$FILE" | jq -sRr @uri)"
-          done
+          gh release create "$TAG" \
+            --title "LibreWolf Source v${TAG}" \
+            --notes "## LibreWolf Source Release v${TAG}\nBuilt on GitHub by workflow [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})" \
+            "${FILES[@]}"
