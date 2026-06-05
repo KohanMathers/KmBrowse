@@ -14,6 +14,9 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Fix git safe directory
+        run: git config --global --add safe.directory /__w/KmBrowse/KmBrowse
+
       - name: Install Dependencies
         run: |
           apt-get update
