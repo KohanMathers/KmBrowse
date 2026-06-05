@@ -52,6 +52,11 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Install Dependencies
+        run: |
+          apt-get update
+          apt-get -y install --no-install-recommends gh
+
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
